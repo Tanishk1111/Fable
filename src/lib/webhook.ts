@@ -5,7 +5,7 @@ const ACTION_LABELS: Record<string, string> = {
   deftones: "🤍 White Pony vibe. Chill late-night chat.",
   pager: "📟 Secret code entered. She dialed 707.",
   "pager-message": "💌 Direct line message from her:",
-  setlist: "📝 New track dropped on the setlist.",
+  setlist: "📝 New track on the setlist — open the site to jam sync:",
 };
 
 function buildMessage(payload: {

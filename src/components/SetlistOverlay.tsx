@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { useAppStore } from "@/store/useAppStore";
 import { playTapeWrite } from "@/lib/howler";
-import { getEmbedForUrl } from "@/lib/embed";
+import { getYoutubeId } from "@/lib/embed";
+import { useListenStore } from "@/store/useListenStore";
 
 interface SetlistEntry {
   id: string;
@@ -12,13 +13,23 @@ interface SetlistEntry {
   created_at: string;
 }
 
+async function startJam(url: string) {
+  await fetch("/api/listen", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+}
+
 export default function SetlistOverlay() {
   const { setView } = useAppStore();
+  const setExpanded = useListenStore((s) => s.setExpanded);
+  const markUserGesture = useListenStore((s) => s.markUserGesture);
   const [url, setUrl] = useState("");
   const [entries, setEntries] = useState<SetlistEntry[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [localEntries, setLocalEntries] = useState<string[]>([]);
-  const [nowPlaying, setNowPlaying] = useState<string | null>(null);
+  const [justAdded, setJustAdded] = useState<string | null>(null);
 
   const close = () => setView("main");
 
@@ -48,24 +59,34 @@ export default function SetlistOverlay() {
         setLocalEntries((prev) => [trimmed, ...prev]);
         if (data.entry) setEntries((prev) => [data.entry, ...prev]);
         setUrl("");
-        // Auto-play if we can embed it
-        if (getEmbedForUrl(trimmed)) setNowPlaying(trimmed);
+        setJustAdded(trimmed);
+        if (getYoutubeId(trimmed)) {
+          markUserGesture();
+          await startJam(trimmed);
+          setExpanded(true);
+        }
       }
     } catch {
       setLocalEntries((prev) => [trimmed, ...prev]);
       setUrl("");
-      if (getEmbedForUrl(trimmed)) setNowPlaying(trimmed);
+      if (getYoutubeId(trimmed)) await startJam(trimmed);
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const replayJam = async (link: string) => {
+    if (!getYoutubeId(link)) return;
+    setJustAdded(link);
+    markUserGesture();
+    await startJam(link);
+    setExpanded(true);
   };
 
   const allUrls = [
     ...localEntries,
     ...entries.map((e) => e.url).filter((u) => !localEntries.includes(u)),
   ];
-
-  const embed = nowPlaying ? getEmbedForUrl(nowPlaying) : null;
 
   return (
     <>
@@ -96,53 +117,31 @@ export default function SetlistOverlay() {
             <h2 className="font-handwritten text-2xl text-neutral-800 -rotate-1">
               tonight&apos;s set
             </h2>
-            <button
-              onClick={close}
-              className="text-neutral-500 touch-manipulation active:text-neutral-800"
-              aria-label="Close"
-            >
+            <button onClick={close} className="text-neutral-500 touch-manipulation" aria-label="Close">
               ✕
             </button>
           </div>
 
-          {/* Player — YouTube or Spotify embed */}
-          <AnimatePresence>
-            {embed && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                className="mb-4 overflow-hidden rounded border border-neutral-400/40 bg-black/5"
-              >
-                {embed.type === "youtube" ? (
-                  <iframe
-                    title="Now playing"
-                    src={`https://www.youtube.com/embed/${embed.id}?autoplay=1&rel=0`}
-                    className="aspect-video w-full"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                  />
-                ) : (
-                  <iframe
-                    title="Now playing"
-                    src={embed.src}
-                    className="h-[152px] w-full"
-                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                    loading="lazy"
-                  />
-                )}
-                <p className="px-2 py-1 font-handwritten text-xs text-neutral-600">
-                  now playing ♪
-                </p>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {justAdded && getYoutubeId(justAdded) && (
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-4 rounded border border-pager-green/30 bg-pager-green/10 px-3 py-2"
+            >
+              <p className="font-handwritten text-base text-neutral-800">
+                added to the jam ♪
+              </p>
+              <p className="font-lcd text-[9px] uppercase tracking-wider text-pager-green/80">
+                you&apos;re listening together — check the player below
+              </p>
+            </motion.div>
+          )}
 
           <form onSubmit={handleSubmit} className="mb-4">
             <input
               type="url"
               inputMode="url"
-              placeholder="paste youtube or spotify..."
+              placeholder="paste youtube link to jam..."
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               className="mb-3 w-full border-b-2 border-neutral-400/50 bg-transparent px-1 py-2 font-handwritten text-lg text-neutral-800 placeholder:text-neutral-400 focus:border-neutral-600 focus:outline-none"
@@ -156,28 +155,22 @@ export default function SetlistOverlay() {
             </button>
           </form>
 
-          <ul className="max-h-32 space-y-2 overflow-y-auto">
+          <ul className="max-h-40 space-y-2 overflow-y-auto">
             {allUrls.length === 0 && (
-              <li className="font-handwritten text-lg text-neutral-500">
-                nothing taped yet...
-              </li>
+              <li className="font-handwritten text-lg text-neutral-500">nothing taped yet...</li>
             )}
             {allUrls.map((link, i) => {
-              const playable = !!getEmbedForUrl(link);
+              const isYt = !!getYoutubeId(link);
               return (
                 <li key={`${link}-${i}`}>
                   <button
                     type="button"
-                    onClick={() => playable && setNowPlaying(link)}
+                    onClick={() => isYt && replayJam(link)}
                     className={`w-full truncate text-left font-handwritten text-base touch-manipulation ${
-                      nowPlaying === link
-                        ? "text-neutral-900 underline decoration-neutral-400"
-                        : playable
-                          ? "text-neutral-700 active:text-neutral-900"
-                          : "text-neutral-600"
+                      justAdded === link ? "text-neutral-900 underline" : "text-neutral-700"
                     }`}
                   >
-                    {playable ? "▶ " : "• "}
+                    {isYt ? "♪ " : "• "}
                     {link.replace(/^https?:\/\//, "")}
                   </button>
                 </li>

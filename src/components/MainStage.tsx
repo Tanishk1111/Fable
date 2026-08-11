@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useAppStore } from "@/store/useAppStore";
 import Guitar from "./Guitar";
 import CaseDock from "./CaseDock";
+import JamRoom from "./listen/JamRoom";
 import PagerOverlay from "./PagerOverlay";
 import SetlistOverlay from "./SetlistOverlay";
 
@@ -78,6 +79,7 @@ export default function MainStage() {
           </motion.p>
         </div>
 
+        <JamRoom />
         <CaseDock />
       </div>
 
